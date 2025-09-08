@@ -1,0 +1,14 @@
+{
+  "name": "block-blast-ts",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsc -w",
+    "serve": "live-server --port=5173 --no-browser --mount=/:.",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "live-server": "^1.2.2",
+    "typescript": "^5.6.3"
+  }
+}
