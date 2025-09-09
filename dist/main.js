@@ -4,13 +4,21 @@ const boardEl = document.getElementById("board");
 const piecesEl = document.getElementById("pieces");
 const scoreEl = document.getElementById("score");
 const resetBtn = document.getElementById("resetBtn");
+// Модалка Game Over
 const overlayEl = document.getElementById("gameOverOverlay");
 const finalScoreEl = document.getElementById("finalScore");
 const newGameBtn = document.getElementById("newGameBtn");
+function showGameOver() {
+    finalScoreEl.textContent = String(game.score);
+    overlayEl.classList.remove("hidden");
+    overlayEl.setAttribute("aria-hidden", "false");
+}
+function hideGameOver() {
+    overlayEl.classList.add("hidden");
+    overlayEl.setAttribute("aria-hidden", "true");
+}
 const game = new Game();
-let isAnimatingClear = false;
-const CLEAR_ANIM_MS = 240;
-/** ------- РЕНДЕР ПОЛЯ ------- */
+/* -------------------- РЕНДЕР ПОЛЯ -------------------- */
 function renderBoard() {
     boardEl.innerHTML = "";
     for (let y = 0; y < BOARD_SIZE; y++) {
@@ -20,30 +28,16 @@ function renderBoard() {
             const idx = y * BOARD_SIZE + x;
             if (game.board.cells[idx])
                 cell.classList.add("filled");
-            // зберігаємо координати клітинки для drag-over
+            // координати клітинки (для DnD через elementFromPoint)
             cell._gx = x;
             cell._gy = y;
-            cell.addEventListener("mouseenter", () => {
-                if (dragState.active) {
-                    dragState.hoverX = x;
-                    dragState.hoverY = y;
-                    cell.classList.add("drop-hover");
-                    validateDrag();
-                }
-                else {
-                    cell.classList.add("hover");
-                }
-            });
-            cell.addEventListener("mouseleave", () => {
-                cell.classList.remove("hover", "drop-hover");
-            });
-            // клік як запасний спосіб постановки
+            // запасний спосіб — клік по клітинці
             cell.addEventListener("click", () => handlePlace(x, y));
             boardEl.appendChild(cell);
         }
     }
 }
-/** ------- РЕНДЕР ФІГУР ------- */
+/* -------------------- РЕНДЕР ФІГУР -------------------- */
 function renderPieces() {
     piecesEl.innerHTML = "";
     game.pieces.forEach((shape, i) => {
@@ -68,7 +62,7 @@ function renderPieces() {
             ev.preventDefault();
             startDrag(i, ev.clientX, ev.clientY);
         });
-        // клік — старий спосіб: вибір фігури без drag
+        // клік — вибір без drag (необов'язково)
         piece.addEventListener("click", () => {
             game.selectPiece(i);
             renderPieces();
@@ -76,30 +70,13 @@ function renderPieces() {
         piecesEl.appendChild(piece);
     });
 }
-/** ------- HUD ------- */
+/* -------------------- HUD -------------------- */
 function updateHUD() {
     scoreEl.textContent = String(game.score);
 }
-function showComboPopForClear(lines, clearIndexes) {
-    if (lines < 2 || clearIndexes.length === 0)
-        return;
-    const bonus = lines * 10; // 2 лінії → +20, 3 → +30, ...
-    const mid = clearIndexes[Math.floor(clearIndexes.length / 2)];
-    const cell = boardEl.children.item(mid);
-    if (!cell)
-        return;
-    const br = boardEl.getBoundingClientRect();
-    const cr = cell.getBoundingClientRect();
-    const el = document.createElement("div");
-    el.className = "combo-pop" + (bonus >= 30 ? " big" : "");
-    el.textContent = `+${bonus}`;
-    // координати В МЕЖАХ board (бо .board позиційна)
-    el.style.left = `${cr.left - br.left + cr.width / 2}px`;
-    el.style.top = `${cr.top - br.top + cr.height / 2}px`;
-    boardEl.appendChild(el);
-    el.addEventListener("animationend", () => el.remove());
-}
-/** ------- ЛОГІКА ХОДУ ПО КЛІКУ ------- */
+/* -------------------- HANDLE PLACE -------------------- */
+const CLEAR_ANIM_MS = 240;
+let isAnimatingClear = false;
 function handlePlace(x, y) {
     if (isAnimatingClear)
         return;
@@ -113,13 +90,13 @@ function handlePlace(x, y) {
         }
         return;
     }
-    // 1) Відмалюємо поле з новою фігурою
+    // нова фігура поставлена — прибираємо «примірку»
+    clearGhost();
+    // 1) перемальовуємо поле з поставленою фігурою
     renderBoard();
-    // 2) Якщо є що чистити — анімація, потім commitClear(...)
+    // 2) якщо є, що чистити — анімація, потім commitClear
     if (res.clearIndexes.length > 0) {
         isAnimatingClear = true;
-        // 👇 ДОДАНО: показати попап одразу після renderBoard()
-        showComboPopForClear(res.cleared, res.clearIndexes);
         for (const idx of res.clearIndexes) {
             const el = boardEl.children.item(idx);
             if (el)
@@ -136,10 +113,11 @@ function handlePlace(x, y) {
         }, CLEAR_ANIM_MS + 20);
     }
     else {
-        // коли ліній нема — все одно перевіряємо Game Over
+        // без очищень — одразу перевірка на Game Over
+        const { gameOver } = game.commitClear([]);
+        renderBoard();
         renderPieces();
         updateHUD();
-        const { gameOver } = game.commitClear([]);
         if (gameOver)
             showGameOver();
     }
@@ -155,11 +133,11 @@ const dragState = {
 function startDrag(pieceIndex, clientX, clientY) {
     if (!game.pieces[pieceIndex])
         return;
-    // вибираємо фігуру в моделі (для логіки tryPlace)
+    // вибрати фігуру в моделі (для canPlace/tryPlace)
     game.selectPiece(pieceIndex);
     dragState.active = true;
     dragState.pieceIndex = pieceIndex;
-    // створюємо прев’ю
+    // створюємо прев’ю-фігуру
     const shape = game.pieces[pieceIndex];
     const maxX = Math.max(...shape.map(p => p.x));
     const maxY = Math.max(...shape.map(p => p.y));
@@ -179,16 +157,14 @@ function startDrag(pieceIndex, clientX, clientY) {
     }
     document.body.appendChild(preview);
     dragState.previewEl = preview;
-    // одразу перемістимо до курсора
     movePreview(clientX, clientY);
-    // глобальні слухачі
     window.addEventListener("mousemove", onMouseMoveDrag);
     window.addEventListener("mouseup", onMouseUpDrag);
 }
 function onMouseMoveDrag(e) {
     if (!dragState.active)
         return;
-    // прев’ю біля курсора (через left/top)
+    // прев’ю біля курсора (через left/top, без transform)
     movePreview(e.clientX, e.clientY);
     // елемент під курсором (прев’ю має pointer-events:none у CSS)
     const target = document.elementFromPoint(e.clientX, e.clientY);
@@ -197,15 +173,15 @@ function onMouseMoveDrag(e) {
         const y = target._gy;
         dragState.hoverX = x;
         dragState.hoverY = y;
-        // перевірка валідності + «примірка» (ghost малюється лише коли можна поставити)
+        // перевірка валідності + «примірка» (ghost тільки коли можна поставити)
         validateDrag();
-        // рамка-якорь тільки коли дійсно можна поставити
+        // рамка-якір лише коли дійсно можна поставити
         boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
         if (dragState.valid)
             target.classList.add("drop-hover");
     }
     else {
-        // поза клітинками дошки
+        // поза дошкою
         dragState.hoverX = -1;
         dragState.hoverY = -1;
         dragState.valid = false;
@@ -217,7 +193,6 @@ function onMouseMoveDrag(e) {
 function onMouseUpDrag() {
     if (!dragState.active)
         return;
-    // якщо валідно й ми над дошкою — ставимо
     if (dragState.valid && dragState.hoverX >= 0 && dragState.hoverY >= 0 && dragState.pieceIndex != null) {
         handlePlace(dragState.hoverX, dragState.hoverY);
     }
@@ -226,11 +201,13 @@ function onMouseUpDrag() {
 function cleanupDrag() {
     dragState.active = false;
     dragState.pieceIndex = null;
-    dragState.hoverX = dragState.hoverY = -1;
+    dragState.hoverX = -1;
+    dragState.hoverY = -1;
     dragState.valid = false;
     if (dragState.previewEl?.parentNode)
         dragState.previewEl.parentNode.removeChild(dragState.previewEl);
     dragState.previewEl = null;
+    clearGhost();
     boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
     window.removeEventListener("mousemove", onMouseMoveDrag);
     window.removeEventListener("mouseup", onMouseUpDrag);
@@ -241,19 +218,6 @@ function movePreview(clientX, clientY) {
     dragState.previewEl.style.left = clientX - 22 + "px";
     dragState.previewEl.style.top = clientY - 22 + "px";
 }
-function validateDrag() {
-    clearGhost();
-    const i = dragState.pieceIndex;
-    if (i == null || dragState.hoverX < 0 || dragState.hoverY < 0) {
-        dragState.valid = false;
-        setPreviewValidity(false, /*soft*/ true);
-        return;
-    }
-    // Намалюємо «примірку» (намалює тільки якщо valid)
-    paintGhostAt(dragState.hoverX, dragState.hoverY);
-    // Стан прев’ю (не червоний, просто притлумлюємо коли не можна)
-    setPreviewValidity(dragState.valid);
-}
 function setPreviewValidity(ok, soft = false) {
     if (!dragState.previewEl)
         return;
@@ -262,11 +226,10 @@ function setPreviewValidity(ok, soft = false) {
         dragState.previewEl.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-3px)' }, { transform: 'translateX(0)' }], { duration: 120 });
     }
 }
+/* --------- ПІДСВІТКА «ПРИМІРКИ» НА ПОЛІ --------- */
 function clearGhost() {
-    boardEl.querySelectorAll(".cell.ghost-ok")
-        .forEach(el => el.classList.remove("ghost-ok"));
+    boardEl.querySelectorAll(".cell.ghost-ok").forEach(el => el.classList.remove("ghost-ok"));
 }
-/** Малює «примірку» фігури тільки якщо можна поставити */
 function paintGhostAt(x, y) {
     clearGhost();
     if (dragState.pieceIndex == null)
@@ -275,7 +238,7 @@ function paintGhostAt(x, y) {
     const ok = game.board.canPlace(shape, x, y);
     dragState.valid = ok;
     if (!ok)
-        return; // НЕ малюємо нічого, коли не можна
+        return; // малюємо тільки коли можна поставити
     for (const p of shape) {
         const tx = x + p.x, ty = y + p.y;
         if (tx < 0 || ty < 0 || tx >= BOARD_SIZE || ty >= BOARD_SIZE)
@@ -288,30 +251,33 @@ function paintGhostAt(x, y) {
             el.classList.add("ghost-ok");
     }
 }
-/** =================== КІНЕЦЬ DRAG & DROP =================== */
+function validateDrag() {
+    clearGhost();
+    if (dragState.pieceIndex == null || dragState.hoverX < 0 || dragState.hoverY < 0) {
+        dragState.valid = false;
+        setPreviewValidity(false, /*soft*/ true);
+        return;
+    }
+    paintGhostAt(dragState.hoverX, dragState.hoverY); // ставить dragState.valid усередині
+    setPreviewValidity(dragState.valid);
+}
+/* -------------------- КНОПКИ -------------------- */
 resetBtn.addEventListener("click", () => {
     game.reset({ densityMin: 0.50, densityMax: 0.60 });
+    clearGhost();
     renderBoard();
     renderPieces();
     updateHUD();
 });
-function showGameOver() {
-    finalScoreEl.textContent = String(game.score);
-    overlayEl.classList.remove("hidden");
-    overlayEl.setAttribute("aria-hidden", "false");
-}
-function hideGameOver() {
-    overlayEl.classList.add("hidden");
-    overlayEl.setAttribute("aria-hidden", "true");
-}
 newGameBtn.addEventListener("click", () => {
     game.reset({ densityMin: 0.50, densityMax: 0.60 });
+    clearGhost();
     renderBoard();
     renderPieces();
     updateHUD();
     hideGameOver();
 });
-// старт
+/* -------------------- СТАРТ -------------------- */
 game.reset({ densityMin: 0.50, densityMax: 0.60 });
 renderBoard();
 renderPieces();
