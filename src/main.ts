@@ -71,6 +71,14 @@ function renderPieces() {
             startDrag(i, ev.clientX, ev.clientY);
         });
 
+        // старт drag дотиком
+        piece.addEventListener("touchstart", (ev) => {
+            const t = ev.touches[0] || ev.changedTouches[0];
+            if (!t) return;
+            ev.preventDefault(); // важливо, інакше сторінка почне скролитись
+            startDrag(i, t.clientX, t.clientY);
+        }, { passive: false });
+
         // клік — вибір без drag (необов'язково)
         piece.addEventListener("click", () => {
             game.selectPiece(i);
@@ -80,6 +88,31 @@ function renderPieces() {
         piecesEl.appendChild(piece);
     });
 }
+
+function dragMove(clientX: number, clientY: number) {
+  if (!dragState.active) return;
+
+  movePreview(clientX, clientY);
+
+  const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+  if (target && target.classList.contains("cell")) {
+    const x = (target as any)._gx as number;
+    const y = (target as any)._gy as number;
+    dragState.hoverX = x;
+    dragState.hoverY = y;
+
+    validateDrag();
+    boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
+    if (dragState.valid) target.classList.add("drop-hover");
+  } else {
+    dragState.hoverX = dragState.hoverY = -1;
+    dragState.valid = false;
+    boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
+    clearGhost();
+    setPreviewValidity(false, /*soft*/ true);
+  }
+}
+
 
 /* -------------------- HUD -------------------- */
 function updateHUD() {
@@ -190,39 +223,14 @@ function startDrag(pieceIndex: number, clientX: number, clientY: number) {
 
     window.addEventListener("mousemove", onMouseMoveDrag);
     window.addEventListener("mouseup", onMouseUpDrag);
+
+    window.addEventListener("touchmove", onTouchMoveDrag, { passive: false });
+    window.addEventListener("touchend", onTouchEndDrag, { passive: false });
+    window.addEventListener("touchcancel", onTouchEndDrag, { passive: false });
 }
 
 function onMouseMoveDrag(e: MouseEvent) {
-    if (!dragState.active) return;
-
-    // прев’ю біля курсора (через left/top, без transform)
-    movePreview(e.clientX, e.clientY);
-
-    // елемент під курсором (прев’ю має pointer-events:none у CSS)
-    const target = document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null;
-
-    if (target && target.classList.contains("cell")) {
-        const x = (target as any)._gx as number;
-        const y = (target as any)._gy as number;
-
-        dragState.hoverX = x;
-        dragState.hoverY = y;
-
-        // перевірка валідності + «примірка» (ghost тільки коли можна поставити)
-        validateDrag();
-
-        // рамка-якір лише коли дійсно можна поставити
-        boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
-        if (dragState.valid) target.classList.add("drop-hover");
-    } else {
-        // поза дошкою
-        dragState.hoverX = -1;
-        dragState.hoverY = -1;
-        dragState.valid = false;
-        boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
-        clearGhost();
-        setPreviewValidity(false, /*soft*/ true);
-    }
+    dragMove(e.clientX, e.clientY);
 }
 
 function onMouseUpDrag() {
@@ -233,6 +241,22 @@ function onMouseUpDrag() {
     }
     cleanupDrag();
 }
+
+function onTouchMoveDrag(e: TouchEvent) {
+  const t = e.touches[0] || e.changedTouches[0];
+  if (!t) return;
+  e.preventDefault(); // треба, інакше скрол/зум
+  dragMove(t.clientX, t.clientY);
+}
+
+function onTouchEndDrag(e: TouchEvent) {
+  e.preventDefault();
+  if (dragState.active && dragState.valid && dragState.hoverX >= 0 && dragState.hoverY >= 0) {
+    handlePlace(dragState.hoverX, dragState.hoverY);
+  }
+  cleanupDrag();
+}
+
 
 function cleanupDrag() {
     dragState.active = false;
@@ -249,6 +273,11 @@ function cleanupDrag() {
 
     window.removeEventListener("mousemove", onMouseMoveDrag);
     window.removeEventListener("mouseup", onMouseUpDrag);
+
+    window.removeEventListener("touchmove", onTouchMoveDrag as any);
+    window.removeEventListener("touchend", onTouchEndDrag as any);
+    window.removeEventListener("touchcancel", onTouchEndDrag as any);
+
 }
 
 function movePreview(clientX: number, clientY: number) {

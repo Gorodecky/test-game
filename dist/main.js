@@ -62,6 +62,14 @@ function renderPieces() {
             ev.preventDefault();
             startDrag(i, ev.clientX, ev.clientY);
         });
+        // старт drag дотиком
+        piece.addEventListener("touchstart", (ev) => {
+            const t = ev.touches[0] || ev.changedTouches[0];
+            if (!t)
+                return;
+            ev.preventDefault(); // важливо, інакше сторінка почне скролитись
+            startDrag(i, t.clientX, t.clientY);
+        }, { passive: false });
         // клік — вибір без drag (необов'язково)
         piece.addEventListener("click", () => {
             game.selectPiece(i);
@@ -69,6 +77,29 @@ function renderPieces() {
         });
         piecesEl.appendChild(piece);
     });
+}
+function dragMove(clientX, clientY) {
+    if (!dragState.active)
+        return;
+    movePreview(clientX, clientY);
+    const target = document.elementFromPoint(clientX, clientY);
+    if (target && target.classList.contains("cell")) {
+        const x = target._gx;
+        const y = target._gy;
+        dragState.hoverX = x;
+        dragState.hoverY = y;
+        validateDrag();
+        boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
+        if (dragState.valid)
+            target.classList.add("drop-hover");
+    }
+    else {
+        dragState.hoverX = dragState.hoverY = -1;
+        dragState.valid = false;
+        boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
+        clearGhost();
+        setPreviewValidity(false, /*soft*/ true);
+    }
 }
 /* -------------------- HUD -------------------- */
 function updateHUD() {
@@ -160,40 +191,31 @@ function startDrag(pieceIndex, clientX, clientY) {
     movePreview(clientX, clientY);
     window.addEventListener("mousemove", onMouseMoveDrag);
     window.addEventListener("mouseup", onMouseUpDrag);
+    window.addEventListener("touchmove", onTouchMoveDrag, { passive: false });
+    window.addEventListener("touchend", onTouchEndDrag, { passive: false });
+    window.addEventListener("touchcancel", onTouchEndDrag, { passive: false });
 }
 function onMouseMoveDrag(e) {
-    if (!dragState.active)
-        return;
-    // прев’ю біля курсора (через left/top, без transform)
-    movePreview(e.clientX, e.clientY);
-    // елемент під курсором (прев’ю має pointer-events:none у CSS)
-    const target = document.elementFromPoint(e.clientX, e.clientY);
-    if (target && target.classList.contains("cell")) {
-        const x = target._gx;
-        const y = target._gy;
-        dragState.hoverX = x;
-        dragState.hoverY = y;
-        // перевірка валідності + «примірка» (ghost тільки коли можна поставити)
-        validateDrag();
-        // рамка-якір лише коли дійсно можна поставити
-        boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
-        if (dragState.valid)
-            target.classList.add("drop-hover");
-    }
-    else {
-        // поза дошкою
-        dragState.hoverX = -1;
-        dragState.hoverY = -1;
-        dragState.valid = false;
-        boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
-        clearGhost();
-        setPreviewValidity(false, /*soft*/ true);
-    }
+    dragMove(e.clientX, e.clientY);
 }
 function onMouseUpDrag() {
     if (!dragState.active)
         return;
     if (dragState.valid && dragState.hoverX >= 0 && dragState.hoverY >= 0 && dragState.pieceIndex != null) {
+        handlePlace(dragState.hoverX, dragState.hoverY);
+    }
+    cleanupDrag();
+}
+function onTouchMoveDrag(e) {
+    const t = e.touches[0] || e.changedTouches[0];
+    if (!t)
+        return;
+    e.preventDefault(); // треба, інакше скрол/зум
+    dragMove(t.clientX, t.clientY);
+}
+function onTouchEndDrag(e) {
+    e.preventDefault();
+    if (dragState.active && dragState.valid && dragState.hoverX >= 0 && dragState.hoverY >= 0) {
         handlePlace(dragState.hoverX, dragState.hoverY);
     }
     cleanupDrag();
@@ -211,6 +233,9 @@ function cleanupDrag() {
     boardEl.querySelectorAll(".cell.drop-hover").forEach(c => c.classList.remove("drop-hover"));
     window.removeEventListener("mousemove", onMouseMoveDrag);
     window.removeEventListener("mouseup", onMouseUpDrag);
+    window.removeEventListener("touchmove", onTouchMoveDrag);
+    window.removeEventListener("touchend", onTouchEndDrag);
+    window.removeEventListener("touchcancel", onTouchEndDrag);
 }
 function movePreview(clientX, clientY) {
     if (!dragState.previewEl)
