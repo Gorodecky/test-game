@@ -1,13 +1,14 @@
 import { Board } from "./board.js";
-import { randomPiece, SHAPES } from "./pieces.js"; // ← або "./piece.js"
+import { randomPiece, SHAPES } from "./pieces.js"; // або "./piece.js"
 import { BOARD_SIZE } from "./types.js";
 import type { Vec } from "./types.js";
 
 type ResetOpts = {
-  densityMin?: number;
-  densityMax?: number;
+  densityMin?: number; // напр., 0.50
+  densityMax?: number; // напр., 0.60
 };
 
+/** Чи має форма хоча б одне місце на полі */
 function shapeHasAnyPlacement(board: Board, shape: Vec[]): boolean {
   for (let y = 0; y < BOARD_SIZE; y++) {
     for (let x = 0; x < BOARD_SIZE; x++) {
@@ -17,25 +18,35 @@ function shapeHasAnyPlacement(board: Board, shape: Vec[]): boolean {
   return false;
 }
 
-function pickGuaranteedShape(board: Board): Vec[] | null {
+/** Створює руку з 3 фігур, де КОЖНА фігура має хоча б одну позицію на полі.
+ *  Якщо на полі немає жодної придатної фігури — повертає null (це чесний game over).
+ *  Поведінка: якщо кандидатів ≥ 3 — беремо без повторів; якщо < 3 — добираємо з повтореннями.
+ */
+function makeAllPlayableHand(board: Board): Vec[][] | null {
   const candidates = SHAPES.filter(s => shapeHasAnyPlacement(board, s));
   if (candidates.length === 0) return null;
-  return candidates[Math.floor(Math.random() * candidates.length)];
+
+  // перемішати кандидатів
+  const shuffled = [...candidates];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  const hand: Vec[][] = [];
+  if (shuffled.length >= 3) {
+    hand.push(shuffled[0], shuffled[1], shuffled[2]); // без повторів
+  } else {
+    // кандидатів 1–2: добираємо з повтореннями — УСІ вони все одно ставляться зараз
+    while (hand.length < 3) {
+      hand.push(shuffled[Math.floor(Math.random() * shuffled.length)]);
+    }
+  }
+  return hand;
 }
 
 function randomHand(): Vec[][] {
   return [randomPiece(), randomPiece(), randomPiece()];
-}
-
-/** Підбирає трійку, яка має хоча б один хід; якщо немає жодної — повертає null */
-function playableHandOrNull(board: Board, maxTries = 20): Vec[][] | null {
-  for (let i = 0; i < maxTries; i++) {
-    const hand = randomHand();
-    if (board.hasAnyMove(hand)) return hand;
-  }
-  const sure = pickGuaranteedShape(board);
-  if (!sure) return null;
-  return [sure, randomPiece(), randomPiece()];
 }
 
 export class Game {
@@ -57,39 +68,42 @@ export class Game {
     this.score = 0;
     this.selectedIndex = null;
 
+    // Стартовий префілд (за потреби), без миттєвих повних ліній
     if (max > 0) {
       const density = Math.min(0.95, Math.max(0, min + Math.random() * (max - min)));
       this.board.preFillRandom(density, /*avoidFullLines*/ true);
     }
 
-    this.refillPieces(true);
-
-    // гарантуємо хоч один можливий хід на старті
+    // Добираємо руку так, щоб КОЖНА фігура ставилась
+    let hand = makeAllPlayableHand(this.board);
+    // Якщо поле «патова» (жодна форма не влазить) — спробуємо перегенерувати префілд кілька разів
     let tries = 0;
-    while (!this.board.hasAnyMove(this.pieces) && tries < 25) {
+    while (!hand && tries < 20 && max > 0) {
       this.board.reset();
-      if (max > 0) {
-        const d = Math.min(0.95, Math.max(0, min + Math.random() * (max - min)));
-        this.board.preFillRandom(d, true);
-      }
-      this.refillPieces(true);
+      const d = Math.min(0.95, Math.max(0, min + Math.random() * (max - min)));
+      this.board.preFillRandom(d, true);
+      hand = makeAllPlayableHand(this.board);
       tries++;
     }
-  }
 
-  /** Добрати 3 фігури; ensurePlayable=true — уникаємо «мертвих роздач» */
-  refillPieces(ensurePlayable = true) {
-    if (!ensurePlayable) {
-      this.pieces = randomHand();
-      this.selectedIndex = null;
-      return;
-    }
-    const hand = playableHandOrNull(this.board);
-    this.pieces = hand ?? randomHand();
+    this.pieces = hand ?? randomHand(); // якщо й досі null — це реальний game over (рука будь-яка)
     this.selectedIndex = null;
   }
 
-  selectPiece(i: number) { if (this.pieces[i]) this.selectedIndex = i; }
+  /** Добрати 3 фігури; allMustFit=true — КОЖНА фігура в руці має ставитись на поточне поле */
+  refillPieces(allMustFit = true) {
+    if (allMustFit) {
+      const hand = makeAllPlayableHand(this.board);
+      this.pieces = hand ?? randomHand(); // null буває лише коли поле «мертве»
+    } else {
+      this.pieces = randomHand();
+    }
+    this.selectedIndex = null;
+  }
+
+  selectPiece(i: number) {
+    if (this.pieces[i]) this.selectedIndex = i;
+  }
 
   /**
    * Спроба поставити вибрану фігуру на (x,y).
@@ -103,14 +117,14 @@ export class Game {
     // ставимо
     this.board.place(shape, x, y);
 
-    // шукаємо повні лінії (без фактичного очищення)
+    // шукаємо повні лінії (без фактичного очищення — це для анімації)
     const { rows, cols, indexes } = this.board.getFullLines();
     const lines = rows.length + cols.length;
 
     // очки: розмір фігури + бонус за лінії
     this.score += shape.length + (lines > 0 ? lines * 10 : 0);
 
-    // прибираємо використану фігуру; при потребі — добираємо трійку
+    // прибираємо використану фігуру; якщо рука спорожніла — добираємо ТРИ, і кожна має ставитись
     this.pieces.splice(this.selectedIndex, 1);
     if (this.pieces.length === 0) this.refillPieces(true);
     this.selectedIndex = null;
@@ -120,8 +134,7 @@ export class Game {
 
   /**
    * Після анімації: реально очистити клітинки й перевірити, чи є ще хід.
-   * НІЯКИХ замін руки всередині — лише логічна перевірка.
-   */
+   * */
   commitClear(indexes: number[]): { gameOver: boolean } {
     if (indexes.length) this.board.clearByIndexes(indexes);
     const hasMove = this.board.hasAnyMove(this.pieces);
