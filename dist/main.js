@@ -290,7 +290,7 @@ function paintGhostAt(x, y) {
 }
 /** =================== КІНЕЦЬ DRAG & DROP =================== */
 resetBtn.addEventListener("click", () => {
-    game.reset();
+    game.reset({ densityMin: 0.50, densityMax: 0.60 });
     renderBoard();
     renderPieces();
     updateHUD();
@@ -305,13 +305,14 @@ function hideGameOver() {
     overlayEl.setAttribute("aria-hidden", "true");
 }
 newGameBtn.addEventListener("click", () => {
-    game.reset();
+    game.reset({ densityMin: 0.50, densityMax: 0.60 });
     renderBoard();
     renderPieces();
     updateHUD();
     hideGameOver();
 });
 // старт
+game.reset({ densityMin: 0.50, densityMax: 0.60 });
 renderBoard();
 renderPieces();
 updateHUD();

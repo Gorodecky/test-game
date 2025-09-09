@@ -2,6 +2,9 @@ import { Board } from "./board.js";
 import { randomPiece } from "./pieces.js";
 import { Vec } from "./types.js";
 
+type ResetOpts = { densityMin?: number; densityMax?: number };
+
+
 export class Game {
   board = new Board();
   score = 0;
@@ -12,12 +15,33 @@ export class Game {
     this.refillPieces();
   }
 
-  reset() {
-    this.board.reset();
-    this.score = 0;
-    this.refillPieces();
-    this.selectedIndex = null;
+reset(opts?: ResetOpts) {
+  const min = opts?.densityMin ?? 0;
+  const max = opts?.densityMax ?? 0;
+
+  this.board.reset();
+  this.score = 0;
+  this.selectedIndex = null;
+
+  if (max > 0) {
+    const density = Math.min(0.95, Math.max(0, min + Math.random() * (max - min)));
+    this.board.preFillRandom(density, true);
   }
+
+  this.refillPieces();
+
+  // гарантуємо хоча б один можливий хід
+  let tries = 0;
+  while (!this.board.hasAnyMove(this.pieces) && tries < 25) {
+    this.board.reset();
+    if (max > 0) {
+      const d = Math.min(0.95, Math.max(0, min + Math.random() * (max - min)));
+      this.board.preFillRandom(d, true);
+    }
+    this.refillPieces();
+    tries++;
+  }
+}
 
   refillPieces() {
     this.pieces = [randomPiece(), randomPiece(), randomPiece()];

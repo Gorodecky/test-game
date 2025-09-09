@@ -344,7 +344,7 @@ function paintGhostAt(x: number, y: number) {
 /** =================== КІНЕЦЬ DRAG & DROP =================== */
 
 resetBtn.addEventListener("click", () => {
-    game.reset();
+    game.reset({ densityMin: 0.50, densityMax: 0.60 });
     renderBoard();
     renderPieces();
     updateHUD();
@@ -362,15 +362,15 @@ function hideGameOver() {
 }
 
 newGameBtn.addEventListener("click", () => {
-    game.reset();
+    game.reset({ densityMin: 0.50, densityMax: 0.60 });
     renderBoard();
     renderPieces();
     updateHUD();
     hideGameOver();
 });
 
-
 // старт
+game.reset({ densityMin: 0.50, densityMax: 0.60 });
 renderBoard();
 renderPieces();
 updateHUD();

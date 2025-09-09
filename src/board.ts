@@ -11,6 +11,48 @@ export class Board {
         this.cells.fill(false);
     }
 
+    preFillRandom(density: number, avoidFullLines = true): number {
+        const total = BOARD_SIZE * BOARD_SIZE;
+        const target = Math.max(0, Math.min(total, Math.round(total * density)));
+
+        // Список усіх індексів, перемішуємо Фішером–Єйтсом
+        const idxs = Array.from({ length: total }, (_, i) => i);
+        for (let i = idxs.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [idxs[i], idxs[j]] = [idxs[j], idxs[i]];
+        }
+
+        let placed = 0;
+        for (const idx of idxs) {
+            if (placed >= target) break;
+            if (this.cells[idx]) continue;
+
+            const x = idx % BOARD_SIZE;
+            const y = Math.floor(idx / BOARD_SIZE);
+
+            this.cells[idx] = true;
+
+            if (avoidFullLines) {
+                // Перевіримо чи не утворили повний рядок/стовпець
+                let rowFull = true;
+                for (let cx = 0; cx < BOARD_SIZE; cx++) {
+                    if (!this.cells[this.index(cx, y)]) { rowFull = false; break; }
+                }
+                let colFull = true;
+                for (let cy = 0; cy < BOARD_SIZE; cy++) {
+                    if (!this.cells[this.index(x, cy)]) { colFull = false; break; }
+                }
+                if (rowFull || colFull) {
+                    this.cells[idx] = false; // відміняємо хід, щоб не було автоліній
+                    continue;
+                }
+            }
+
+            placed++;
+        }
+        return placed;
+    }
+
     index(x: number, y: number) {
         return y * BOARD_SIZE + x;
     }
@@ -66,7 +108,6 @@ export class Board {
     clearByIndexes(indexes: number[]) {
         for (const idx of indexes) this.cells[idx] = false;
     }
-
 
     hasAnyMove(shapes: { x: number; y: number }[][]) {
         for (let y = 0; y < BOARD_SIZE; y++) {
